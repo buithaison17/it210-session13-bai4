@@ -1,16 +1,30 @@
-HQL (Hibernate Query Language) là ngôn ngữ truy vấn hướng đối tượng của Hibernate, trong đó ta làm việc với entity class và thuộc tính của Java thay vì bảng và cột trong database. Ngược lại, Native Query là truy vấn SQL thuần, phụ thuộc trực tiếp vào cấu trúc bảng trong cơ sở dữ liệu.
+Nếu truy cập vào danh sách chi tiết thuốc được cấu hình `FetchType.LAZY` sau khi Session (hoặc EntityManager) đã đóng, hệ thống sẽ phát sinh lỗi `LazyInitializationException`.
 
-So sánh:
-- HQL:
-    + Dựa trên entity (class, field)
-    + Không phụ thuộc trực tiếp vào tên bảng/cột
-    + Hibernate tự chuyển đổi sang SQL tương ứng với từng database
-    + Dễ bảo trì và tái sử dụng khi thay đổi DBMS
+Kịch bản lỗi xảy ra như sau:
+- Entity cha (ví dụ `Prescription`) được truy vấn trong service layer.
+- Session hoặc transaction kết thúc (đóng persistence context).
+- Sau đó ở tầng controller hoặc view, chương trình cố truy cập vào danh sách `medicines` (được load LAZY).
+- Hibernate cố gắng load dữ liệu nhưng không còn session để thực hiện truy vấn → phát sinh `LazyInitializationException: could not initialize proxy - no Session`.
 
-- Native Query:
-    + Viết SQL trực tiếp theo chuẩn của database
-    + Phụ thuộc hoàn toàn vào tên bảng và cú pháp SQL của từng hệ quản trị
-    + Hiệu năng có thể tốt hơn trong một số trường hợp đặc biệt
-    + Khó bảo trì hơn khi thay đổi database
+Hậu quả:
+- Ứng dụng bị lỗi runtime khi truy cập dữ liệu liên quan.
+- API có thể trả về lỗi 500 hoặc dữ liệu thiếu.
 
-HQL giúp mã nguồn an toàn hơn khi cấu hình Database thay đổi vì HQL không phụ thuộc vào cú pháp SQL cụ thể của từng hệ quản trị. Khi thay đổi database (ví dụ từ MySQL sang PostgreSQL), Hibernate sẽ tự sinh ra câu lệnh SQL tương ứng dựa trên dialect đã cấu hình. Điều này giúp hạn chế việc phải sửa lại toàn bộ câu query trong code, giảm rủi ro lỗi do khác biệt cú pháp SQL giữa các hệ thống, và tăng tính độc lập của ứng dụng với database.
+Cách khắc phục:
+1. Dùng `JOIN FETCH` trong HQL/JPQL:
+   - Lấy luôn dữ liệu con ngay từ đầu khi query entity cha.
+   - Ví dụ: `SELECT p FROM Prescription p JOIN FETCH p.medicines`
+
+2. Mở session trong phạm vi cần thiết (Open Session in View):
+   - Giữ session mở đến khi render view (thường dùng trong web MVC).
+   - Tuy nhiên dễ gây vấn đề hiệu năng nếu lạm dụng.
+
+3. Fetch dữ liệu trong service layer (khuyến nghị):
+   - Chuyển entity sang DTO trước khi trả về controller.
+   - Đảm bảo toàn bộ dữ liệu cần thiết được load trong transaction.
+
+4. Chuyển sang `FetchType.EAGER` (ít khuyến khích):
+   - Load luôn dữ liệu con khi truy vấn cha.
+   - Có thể gây thừa dữ liệu và giảm hiệu năng nếu quan hệ lớn.
+
+=> Cách tối ưu nhất thường là dùng `JOIN FETCH` kết hợp DTO để kiểm soát dữ liệu rõ ràng và tránh lỗi LazyInitializationException.
